@@ -1,0 +1,463 @@
+---
+title: "Biostat_PHD20208"
+author: "Akanksha"
+date: "31/03/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tinytex)
+library(markdown)
+library(rmarkdown)
+library(dplyr)
+library(survminer)
+library(RTCGA.clinical)
+library(RTCGA.rnaseq)
+library(survival)
+library(tidyverse)
+library(GeoTcgaData)
+library(RColorBrewer)
+library(DESeq2)
+```
+```{r}
+counts<-read.csv("/Users/akankshaarora/Documents/SB/TCGA-SKCM-htseq_counts.csv")
+phenotype<-read.csv("/Users/akankshaarora/Documents/SB/TCGA-SKCM-GDC_phenotype.csv")
+gene<-read.csv("/Users/akankshaarora/Documents/SB/10gene.csv")
+filtered_genes_new<-read.csv("/Users/akankshaarora/Documents/SB/Filtered_genes.csv")
+labels1<-read.csv("/Users/akankshaarora/Documents/SB/labels.csv")
+#View(counts)
+#View(phenotype)
+#View(phenotype$sample_type.samples)
+counts2<-t(counts)
+
+#Converting Ensembl IDs to gene IDs
+a<-id_conversion(counts)
+#View(a)
+#write.csv(a,"/Users/akankshaarora/Documents/SB/a.csv")
+annotated<-read.csv("/Users/akankshaarora/Documents/SB/a.csv")
+#View(annotated$Gene_ID)
+#View(annotated)
+#filtered_genes<-filter(annotated, Gene_ID %in% gene)
+
+#Merging count file and phenotype file
+labels<-phenotype[,c("submitter_id.samples", "sample_type.samples")]
+#IMPORT ON EXCEL TO CORRECT AND RENAME ID COLUMN
+labels1<-read.csv("/Users/akankshaarora/Documents/SB/labels.csv")
+labelled <- left_join(labels1, filtered_genes_new, by = "submitter_id.samples")
+#View(labelled)
+write.csv(labelled,"/Users/akankshaarora/Documents/SB/labelled.csv")
+y<-read.csv("/Users/akankshaarora/Documents/SB/labelled-labelled.csv",sep = , header = F, stringsAsFactors = F)
+y1 = y[-1,]
+colnames(y1) = y[1,]
+y1= data.frame(y1)
+Cancer_status = select(phenotype, submitter_id.samples, person_neoplasm_cancer_status)
+pp = left_join(Cancer_status, y1 , by = "submitter_id.samples")
+z = data.frame(pp)
+z1 = filter(z, person_neoplasm_cancer_status=="WITH TUMOR" | person_neoplasm_cancer_status=="TUMOR FREE")
+zf = t.data.frame(z1)
+idntype = zf[-c(3,4),]
+zfg = zf[c(-1,-2,-3,-4), ]
+colnames(zfg) = zf[2,]
+
+zfge <- zfg[, order(colnames(zfg))]
+zfgen = data.frame(zfge)
+zfgen[is.na(x = zfgen)] <- 1
+
+d = as.data.frame(sapply(zfgen, function(x) as.integer(as.character(x))),
+                  check.names=F, row.names = rownames(zfgen))
+
+filter <- apply(d, 1, function(x) length(x[x>5])>=2)
+filtered <- d[filter,]
+#View(filtered)
+Countdata = as.matrix(filtered)
+
+condition = as.factor(c(rep("TUMOR.FREE",185 ),rep("WITH.TUMOR", 108)))
+coldata = data.frame(row.names=colnames(Countdata), condition)
+
+all(rownames(coldata) %in% colnames(Countdata))
+all(rownames(coldata) == colnames(Countdata))
+
+dds <- DESeqDataSetFromMatrix(countData = Countdata,
+                              colData = coldata,
+                              design = ~condition)
+
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+
+dds <- DESeq(dds)
+res <- results(dds)
+res
+
+```
+```{r}
+#Plotting fold change
+plotMA(res, ylim=c(-0.03,0.02), cex = 2.0)
+```
+
+
+```{r}
+#################################################### Q3 ################################################################
+
+surv<-read.csv("/Users/akankshaarora/Documents/SB/TCGA-SKCM-survival.csv")
+surv1 <- left_join(surv, filtered_genes_new, by = "submitter_id.samples")
+#View(surv1)
+#write.csv(surv1,"/Users/akankshaarora/Documents/SB/surv1.csv")
+surv1<-read.csv("/Users/akankshaarora/Documents/SB/surv1.csv")
+SKCM.surv_rnaseq.cut <- surv_cutpoint(
+  surv1,
+  time = "OS.time",
+  event = "OS",
+  variables = c("RBPMS","RBPMS2","CHD6","SOX2","NFKBIL1","FLCN",
+                "VHL","GNG8","GNG13")
+)
+#View(SKCM.surv_rnaseq.cut)
+summary(SKCM.surv_rnaseq.cut)
+```
+```{r}
+SKCM.surv_rnaseq.cat <- surv_categorize(SKCM.surv_rnaseq.cut)
+
+#plot(SKCM.surv_rnaseq.cut, c("RBPMS","RBPMS2","CHD6","SOX2","NFKBIL1","FLCN",
+#                "VHL","GNG8","GNG13"), palette = "npg")
+
+```
+```{r}
+#SURVIVAL PLOT FOR RBPMS
+fit <- survfit(Surv(OS.time, OS) ~ RBPMS,
+               data = SKCM.surv_rnaseq.cat)
+ggsurvplot(
+  fit,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = TRUE,
+  xlim = c(0,3000),
+  break.time.by = 1000,
+  ggtheme = theme_RTCGA(),
+  risk.table.y.text.col = T,
+  risk.table.y.text = FALSE
+)
+
+```
+```{r}
+#SURVIVAL PLOT FOR RBPMS2
+fit <- survfit(Surv(OS.time, OS) ~ RBPMS2,
+               data = SKCM.surv_rnaseq.cat)
+ggsurvplot(
+  fit,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = TRUE,
+  xlim = c(0,3000),
+  break.time.by = 1000,
+  ggtheme = theme_RTCGA(),
+  risk.table.y.text.col = T,
+  risk.table.y.text = FALSE
+)
+```
+```{r}
+#SURVIVAL PLOT FOR CHD6
+fit <- survfit(Surv(OS.time, OS) ~ CHD6,
+               data = SKCM.surv_rnaseq.cat)
+ggsurvplot(
+  fit,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = TRUE,
+  xlim = c(0,3000),
+  break.time.by = 1000,
+  ggtheme = theme_RTCGA(),
+  risk.table.y.text.col = T,
+  risk.table.y.text = FALSE
+)
+
+```
+```{r}
+#SURVIVAL PLOT FOR SOX2
+fit <- survfit(Surv(OS.time, OS) ~ SOX2,
+               data = SKCM.surv_rnaseq.cat)
+ggsurvplot(
+  fit,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = TRUE,
+  xlim = c(0,3000),
+  break.time.by = 1000,
+  ggtheme = theme_RTCGA(),
+  risk.table.y.text.col = T,
+  risk.table.y.text = FALSE
+)
+```
+```{r}
+#SURVIVAL PLOT FOR NFKBIL1 (only NFKB not found in annotation)
+fit <- survfit(Surv(OS.time, OS) ~ NFKBIL1,
+               data = SKCM.surv_rnaseq.cat)
+ggsurvplot(
+  fit,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = TRUE,
+  xlim = c(0,3000),
+  break.time.by = 1000,
+  ggtheme = theme_RTCGA(),
+  risk.table.y.text.col = T,
+  risk.table.y.text = FALSE
+)
+```
+```{r}
+#SURVIVAL PLOT FOR FLCN
+fit <- survfit(Surv(OS.time, OS) ~ FLCN,
+               data = SKCM.surv_rnaseq.cat)
+ggsurvplot(
+  fit,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = TRUE,
+  xlim = c(0,3000),
+  break.time.by = 1000,
+  ggtheme = theme_RTCGA(),
+  risk.table.y.text.col = T,
+  risk.table.y.text = FALSE
+)
+```
+```{r}
+#SURVIVAL PLOT FOR VHL
+fit <- survfit(Surv(OS.time, OS) ~ VHL,
+               data = SKCM.surv_rnaseq.cat)
+ggsurvplot(
+  fit,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = TRUE,
+  xlim = c(0,3000),
+  break.time.by = 1000,
+  ggtheme = theme_RTCGA(),
+  risk.table.y.text.col = T,
+  risk.table.y.text = FALSE
+)
+
+```
+```{r}
+#SURVIVAL PLOT FOR GNG8
+fit <- survfit(Surv(OS.time, OS) ~ GNG8,
+               data = SKCM.surv_rnaseq.cat)
+ggsurvplot(
+  fit,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = TRUE,
+  xlim = c(0,3000),
+  break.time.by = 1000,
+  ggtheme = theme_RTCGA(),
+  risk.table.y.text.col = T,
+  risk.table.y.text = FALSE
+)
+
+```
+```{r}
+#SURVIVAL PLOT FOR GNG13
+fit <- survfit(Surv(OS.time, OS) ~ GNG13,
+               data = SKCM.surv_rnaseq.cat)
+ggsurvplot(
+  fit,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = TRUE,
+  xlim = c(0,3000),
+  break.time.by = 1000,
+  ggtheme = theme_RTCGA(),
+  risk.table.y.text.col = T,
+  risk.table.y.text = FALSE
+)
+```
+```{r}
+#################################################### Q2 ################################################################
+
+#Calculating medians
+#median(surv1$RBPMS)
+#median(surv1$RBPMS2)
+#median(surv1$CHD6)
+#median(surv1$SOX2)
+#median(surv1$NFKBIL1)
+#median(surv1$FLCN)
+#median(surv1$VHL)
+#median(surv1$GNG8)
+#median(surv1$GNG13)
+```
+```{r}
+median<-c(11.20976,8.33985,11.83427,7.223994,10.79482,11.09143,10.98299,2.321928,1.584963)
+#View(SKCM.surv_rnaseq.cut[["cutpoint"]][["cutpoint"]])
+
+#Adding medians as cut points
+SKCM.surv_rnaseq.cut[["cutpoint"]][["cutpoint"]][1]<-11.20976
+SKCM.surv_rnaseq.cut[["cutpoint"]][["cutpoint"]][2]<-8.33985
+SKCM.surv_rnaseq.cut[["cutpoint"]][["cutpoint"]][3]<-11.83427
+SKCM.surv_rnaseq.cut[["cutpoint"]][["cutpoint"]][4]<-7.223994
+SKCM.surv_rnaseq.cut[["cutpoint"]][["cutpoint"]][5]<-10.79482
+SKCM.surv_rnaseq.cut[["cutpoint"]][["cutpoint"]][6]<-11.09143
+SKCM.surv_rnaseq.cut[["cutpoint"]][["cutpoint"]][7]<-10.98299
+SKCM.surv_rnaseq.cut[["cutpoint"]][["cutpoint"]][8]<-2.321928
+SKCM.surv_rnaseq.cut[["cutpoint"]][["cutpoint"]][9]<-1.584963
+
+summary(SKCM.surv_rnaseq.cut)
+SKCM.surv_rnaseq.cat <- surv_categorize(SKCM.surv_rnaseq.cut)
+
+```
+```{r}
+#plot(SKCM.surv_rnaseq.cut, c("RBPMS","RBPMS2","CHD6","SOX2","NFKBIL1","FLCN",
+#                             "VHL","GNG8","GNG13"), palette = "npg")
+
+
+#SURVIVAL PLOT FOR RBPMS
+fit <- survfit(Surv(OS.time, OS) ~ RBPMS,
+               data = SKCM.surv_rnaseq.cat)
+ggsurvplot(
+  fit,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = TRUE,
+  xlim = c(0,3000),
+  break.time.by = 1000,
+  ggtheme = theme_RTCGA(),
+  risk.table.y.text.col = T,
+  risk.table.y.text = FALSE
+)
+
+```
+```{r}
+#SURVIVAL PLOT FOR RBPMS2
+fit <- survfit(Surv(OS.time, OS) ~ RBPMS2,
+               data = SKCM.surv_rnaseq.cat)
+ggsurvplot(
+  fit,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = TRUE,
+  xlim = c(0,3000),
+  break.time.by = 1000,
+  ggtheme = theme_RTCGA(),
+  risk.table.y.text.col = T,
+  risk.table.y.text = FALSE
+)
+```
+```{r}
+#SURVIVAL PLOT FOR CHD6
+fit <- survfit(Surv(OS.time, OS) ~ CHD6,
+               data = SKCM.surv_rnaseq.cat)
+ggsurvplot(
+  fit,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = TRUE,
+  xlim = c(0,3000),
+  break.time.by = 1000,
+  ggtheme = theme_RTCGA(),
+  risk.table.y.text.col = T,
+  risk.table.y.text = FALSE
+)
+```
+```{r}
+#SURVIVAL PLOT FOR SOX2
+fit <- survfit(Surv(OS.time, OS) ~ SOX2,
+               data = SKCM.surv_rnaseq.cat)
+ggsurvplot(
+  fit,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = TRUE,
+  xlim = c(0,3000),
+  break.time.by = 1000,
+  ggtheme = theme_RTCGA(),
+  risk.table.y.text.col = T,
+  risk.table.y.text = FALSE
+)
+
+```
+```{r}
+#SURVIVAL PLOT FOR NFKBIL1 (only NFKB not found in annotation)
+fit <- survfit(Surv(OS.time, OS) ~ NFKBIL1,
+               data = SKCM.surv_rnaseq.cat)
+ggsurvplot(
+  fit,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = TRUE,
+  xlim = c(0,3000),
+  break.time.by = 1000,
+  ggtheme = theme_RTCGA(),
+  risk.table.y.text.col = T,
+  risk.table.y.text = FALSE
+)
+
+```
+```{r}
+#SURVIVAL PLOT FOR FLCN
+fit <- survfit(Surv(OS.time, OS) ~ FLCN,
+               data = SKCM.surv_rnaseq.cat)
+ggsurvplot(
+  fit,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = TRUE,
+  xlim = c(0,3000),
+  break.time.by = 1000,
+  ggtheme = theme_RTCGA(),
+  risk.table.y.text.col = T,
+  risk.table.y.text = FALSE
+)
+
+```
+```{r}
+#SURVIVAL PLOT FOR VHL
+fit <- survfit(Surv(OS.time, OS) ~ VHL,
+               data = SKCM.surv_rnaseq.cat)
+ggsurvplot(
+  fit,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = TRUE,
+  xlim = c(0,3000),
+  break.time.by = 1000,
+  ggtheme = theme_RTCGA(),
+  risk.table.y.text.col = T,
+  risk.table.y.text = FALSE
+)
+
+```
+```{r}
+#SURVIVAL PLOT FOR GNG8
+fit <- survfit(Surv(OS.time, OS) ~ GNG8,
+               data = SKCM.surv_rnaseq.cat)
+ggsurvplot(
+  fit,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = TRUE,
+  xlim = c(0,3000),
+  break.time.by = 1000,
+  ggtheme = theme_RTCGA(),
+  risk.table.y.text.col = T,
+  risk.table.y.text = FALSE
+)
+
+```
+```{r}
+#SURVIVAL PLOT FOR GNG13
+fit <- survfit(Surv(OS.time, OS) ~ GNG13,
+               data = SKCM.surv_rnaseq.cat)
+ggsurvplot(
+  fit,
+  risk.table = TRUE,
+  pval = TRUE,
+  conf.int = TRUE,
+  xlim = c(0,3000),
+  break.time.by = 1000,
+  ggtheme = theme_RTCGA(),
+  risk.table.y.text.col = T,
+  risk.table.y.text = FALSE
+)
+
+```
+
